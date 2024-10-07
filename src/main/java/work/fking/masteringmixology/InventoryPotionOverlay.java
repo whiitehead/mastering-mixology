@@ -47,24 +47,25 @@ public class InventoryPotionOverlay extends WidgetItemOverlay {
         var x = bounds.x - 1;
         var y = bounds.y + 15;
 
-        for (int i = 0; i < recipeChars.length; i++) {
-            switch (recipeChars[i]) {
+        for (var recipeChar : recipeChars) {
+            switch (recipeChar) {
                 case 'M':
                     graphics2D.setColor(Color.decode("#" + MOX.color()));
-                    graphics2D.drawChars(recipeChars, i, 1, x, y);
+                    graphics2D.drawString("M", x, y);
                     x += 8;
                     break;
                 case 'A':
                     graphics2D.setColor(Color.decode("#" + AGA.color()));
-                    graphics2D.drawChars(recipeChars, i, 1, x, y);
+                    graphics2D.drawString("A", x, y);
                     x += 7;
                     break;
                 case 'L':
                     graphics2D.setColor(Color.decode("#" + LYE.color()));
-                    graphics2D.drawChars(recipeChars, i, 1, x, y);
+                    graphics2D.drawString("L", x, y);
                     x += 5;
                     break;
-                default: break;
+                default:
+                    break;
             }
         }
 
