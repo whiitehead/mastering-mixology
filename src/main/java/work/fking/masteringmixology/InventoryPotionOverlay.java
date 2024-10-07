@@ -18,9 +18,6 @@ public class InventoryPotionOverlay extends WidgetItemOverlay {
     private final MasteringMixologyConfig config;
 
     @Inject
-    private SpriteManager spriteManager;
-
-    @Inject
     InventoryPotionOverlay(MasteringMixologyPlugin plugin, MasteringMixologyConfig config) {
         this.plugin = plugin;
         this.config = config;
@@ -33,10 +30,7 @@ public class InventoryPotionOverlay extends WidgetItemOverlay {
             return;
         }
 
-        var modifiedPotion = false;
-
         if (30020 < itemId) {
-            modifiedPotion = true;
             itemId -= 10;
         }
 
@@ -46,21 +40,14 @@ public class InventoryPotionOverlay extends WidgetItemOverlay {
             return;
         }
 
-        var bounds = widgetItem.getCanvasBounds();
         graphics2D.setFont(FontManager.getRunescapeSmallFont());
+
+        var bounds = widgetItem.getCanvasBounds();
         var recipeChars = potion.recipe().toCharArray();
-
         var x = bounds.x - 1;
-        var y = bounds.y + 10;
-
-        // id: 5672, 5673, 5674
-        var image = spriteManager.getSprite(5672, 0);
-        graphics2D.drawImage(image, x, y, null);
+        var y = bounds.y + 15;
 
         for (int i = 0; i < recipeChars.length; i++) {
-            // I have no idea why this draws a bunch of black shit off to the right.
-            // graphics2D.setColor(Color.BLACK);
-            // graphics2D.drawChars(recipeChars, i, 1, x, y);
             switch (recipeChars[i]) {
                 case 'M':
                     graphics2D.setColor(Color.decode("#" + MOX.color()));
