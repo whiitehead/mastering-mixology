@@ -22,16 +22,6 @@ public interface MasteringMixologyConfig extends Config {
     String HIGHLIGHTS = "Highlights";
 
     @ConfigItem(
-            keyName = "strategy",
-            name = "Strategy",
-            description = "Selects the potion order highlighting strategy",
-            position = 1
-    )
-    default Strategy strategy() {
-        return Strategy.FAVOR_EXPERIENCE;
-    }
-
-    @ConfigItem(
             keyName = "highlightLevers",
             name = "Highlight levers",
             description = "Highlight levers",
@@ -69,6 +59,16 @@ public interface MasteringMixologyConfig extends Config {
     )
     default boolean identifyPotions() {
         return true;
+    }
+
+    @ConfigItem(
+            keyName = "displayResin",
+            name = "Display resin amount",
+            description = "Display total resin amounts",
+            position = 2
+    )
+    default boolean displayResin() {
+        return false;
     }
 
     @ConfigItem(

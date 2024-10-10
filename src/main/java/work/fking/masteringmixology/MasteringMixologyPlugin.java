@@ -2,6 +2,7 @@ package work.fking.masteringmixology;
 
 import com.google.inject.Provides;
 import net.runelite.api.Client;
+import net.runelite.api.FontID;
 import net.runelite.api.GameState;
 import net.runelite.api.InventoryID;
 import net.runelite.api.TileObject;
@@ -14,6 +15,8 @@ import net.runelite.api.events.VarbitChanged;
 import net.runelite.api.events.WidgetClosed;
 import net.runelite.api.events.WidgetLoaded;
 import net.runelite.api.widgets.Widget;
+import net.runelite.api.widgets.WidgetPositionMode;
+import net.runelite.api.widgets.WidgetTextAlignment;
 import net.runelite.api.widgets.WidgetType;
 import net.runelite.client.Notifier;
 import net.runelite.client.callback.ClientThread;
@@ -23,9 +26,9 @@ import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.overlay.OverlayManager;
+import net.runelite.client.util.ColorUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import work.fking.masteringmixology.evaluator.PotionOrderEvaluator.EvaluatorContext;
 
 import javax.inject.Inject;
 import java.awt.Color;
@@ -48,6 +51,7 @@ public class MasteringMixologyPlugin extends Plugin {
     private static final Logger LOGGER = LoggerFactory.getLogger(MasteringMixologyPlugin.class);
 
     private static final int PROC_MASTERING_MIXOLOGY_BUILD_POTION_ORDER = 7063;
+    private static final int PROC_MASTERING_MIXOLOGY_BUILD_REAGENTS = 7064;
 
     private static final int VARBIT_POTION_ORDER_1 = 11315;
     private static final int VARBIT_POTION_MODIFIER_1 = 11316;
@@ -59,6 +63,12 @@ public class MasteringMixologyPlugin extends Plugin {
     private static final int VARP_LYE_RESIN = 4414;
     private static final int VARP_AGA_RESIN = 4415;
     private static final int VARP_MOX_RESIN = 4416;
+
+    private static final int VARBIT_ALEMBIC_PROGRESS = 11328;
+    private static final int VARBIT_AGITATOR_PROGRESS = 11329;
+
+    private static final int VARBIT_AGITATOR_QUICKACTION = 11337;
+    private static final int VARBIT_ALEMBIC_QUICKACTION = 11338;
 
     private static final int VARBIT_MIXING_VESSEL_POTION = 11339;
     private static final int VARBIT_AGITATOR_POTION = 11340;
@@ -99,12 +109,17 @@ public class MasteringMixologyPlugin extends Plugin {
 
     private final Map<AlchemyObject, HighlightedObject> highlightedObjects = new LinkedHashMap<>();
     private List<PotionOrder> potionOrders = Collections.emptyList();
-    private PotionOrder bestPotionOrder;
     private boolean inLab = false;
 
     private PotionType alembicPotionType;
     private PotionType agitatorPotionType;
     private PotionType retortPotionType;
+
+    private int previousAgitatorProgess;
+    private int previousAlembicProgress;
+
+    private int agitatorQuickActionTicks = 0;
+    private int alembicQuickActionTicks = 0;
 
     public Map<AlchemyObject, HighlightedObject> highlightedObjects() {
         return highlightedObjects;
@@ -166,10 +181,6 @@ public class MasteringMixologyPlugin extends Plugin {
     public void onConfigChanged(ConfigChanged event) {
         if (!event.getGroup().equals(MasteringMixologyConfig.CONFIG_GROUP)) {
             return;
-        }
-
-        if (event.getKey().equals("strategy")) {
-            clientThread.invokeLater(this::updatePotionOrders);
         }
 
         if (!config.highlightStations()) {
@@ -311,6 +322,37 @@ public class MasteringMixologyPlugin extends Plugin {
             } else {
                 unHighlightObject(AlchemyObject.DIGWEED_NORTH_WEST);
             }
+        } else if (varbitId == VARBIT_AGITATOR_PROGRESS) {
+            if (agitatorQuickActionTicks == 2) {
+                // quick action was triggered two ticks ago, so it's now too late
+                resetDefaultHighlight(AlchemyObject.AGITATOR);
+                agitatorQuickActionTicks = 0;
+            }
+            if (agitatorQuickActionTicks == 1) {
+                agitatorQuickActionTicks = 2;
+            }
+            if (value < previousAgitatorProgess) {
+                // progress was set back due to a quick action failure
+                resetDefaultHighlight(AlchemyObject.AGITATOR);
+            }
+            previousAgitatorProgess = value;
+        } else if (varbitId == VARBIT_ALEMBIC_PROGRESS) {
+            if (alembicQuickActionTicks == 1) {
+                // quick action was triggered last tick, so it's now too late
+                resetDefaultHighlight(AlchemyObject.ALEMBIC);
+                alembicQuickActionTicks = 0;
+            }
+            if (value < previousAlembicProgress) {
+                // progress was set back due to a quick action failure
+                resetDefaultHighlight(AlchemyObject.ALEMBIC);
+            }
+            previousAlembicProgress = value;
+        } else if (varbitId == VARBIT_AGITATOR_QUICKACTION) {
+            // agitator quick action was just successfully popped
+            resetDefaultHighlight(AlchemyObject.AGITATOR);
+        } else if (varbitId == VARBIT_ALEMBIC_QUICKACTION) {
+            // alembic quick action was just successfully popped
+            resetDefaultHighlight(AlchemyObject.ALEMBIC);
         }
     }
 
@@ -323,16 +365,22 @@ public class MasteringMixologyPlugin extends Plugin {
         }
         if (spotAnimId == SPOT_ANIM_ALEMBIC && alembicPotionType != null) {
             highlightObject(AlchemyObject.ALEMBIC, config.stationQuickActionHighlightColor());
+            // start counting ticks for alembic so we know to un-highlight on the next alembic varbit update
+            // note this quick action has a 1 tick window, so we use an int that goes 0 -> 1 -> unhighlight
+            alembicQuickActionTicks = 1;
         }
 
         if (spotAnimId == SPOT_ANIM_AGITATOR && agitatorPotionType != null) {
             highlightObject(AlchemyObject.AGITATOR, config.stationQuickActionHighlightColor());
+            // start counting ticks for agitator so we know to un-highlight on the next agitator varbit update
+            // note this quick action has a 2-tick window, so we use an int that goes 0 -> 1 -> 2 -> unhighlight
+            agitatorQuickActionTicks = 1;
         }
     }
 
     @Subscribe
     public void onScriptPostFired(ScriptPostFired event) {
-        if (event.getScriptId() != PROC_MASTERING_MIXOLOGY_BUILD_POTION_ORDER) {
+        if (event.getScriptId() != PROC_MASTERING_MIXOLOGY_BUILD_REAGENTS) {
             return;
         }
         var baseWidget = client.getWidget(COMPONENT_POTION_ORDERS);
@@ -345,11 +393,20 @@ public class MasteringMixologyPlugin extends Plugin {
         if (textComponents.size() < 4) {
             return;
         }
-        var bestPotionOrderIdx = bestPotionOrder != null ? bestPotionOrder.idx() : -1;
 
         for (var order : potionOrders) {
             // The first text widget is always the interface title 'Potion Orders'
-            appendPotionRecipe(textComponents.get(order.idx()), order.idx(), bestPotionOrderIdx == order.idx(), order.fulfilled());
+            appendPotionRecipe(textComponents.get(order.idx()), order.idx(), order.fulfilled());
+        }
+
+        if (config.displayResin()) {
+            var parentWidth = baseWidget.getWidth();
+            var dx = parentWidth / 3;
+            int x = dx / 2;
+
+            addResinText(baseWidget.createChild(-1, WidgetType.TEXT), x, VARP_MOX_RESIN, MOX);
+            addResinText(baseWidget.createChild(-1, WidgetType.TEXT), x + dx, VARP_AGA_RESIN, AGA);
+            addResinText(baseWidget.createChild(-1, WidgetType.TEXT), x + dx * 2, VARP_LYE_RESIN, LYE);
         }
     }
 
@@ -398,6 +455,12 @@ public class MasteringMixologyPlugin extends Plugin {
         }
     }
 
+    public void resetDefaultHighlight(AlchemyObject alchemyObject) {
+        if (config.highlightStations()) {
+            highlightObject(alchemyObject, config.stationHighlightColor());
+        }
+    }
+
     public void unHighlightObject(AlchemyObject alchemyObject) {
         highlightedObjects.remove(alchemyObject);
     }
@@ -427,18 +490,7 @@ public class MasteringMixologyPlugin extends Plugin {
     private void updatePotionOrders() {
         LOGGER.debug("Updating potion orders");
         potionOrders = getPotionOrders();
-        var strategy = config.strategy();
 
-        if (strategy != Strategy.NONE) {
-            var evaluatorContext = new EvaluatorContext(
-                    potionOrders,
-                    client.getVarpValue(VARP_LYE_RESIN),
-                    client.getVarpValue(VARP_AGA_RESIN),
-                    client.getVarpValue(VARP_MOX_RESIN)
-            );
-            bestPotionOrder = strategy.evaluator().evaluate(evaluatorContext);
-            LOGGER.debug("Best potion order: {}", bestPotionOrder);
-        }
         // Trigger a fake varbit update to force run the clientscript proc
         var varbitType = client.getVarbit(VARBIT_POTION_ORDER_1);
 
@@ -460,19 +512,13 @@ public class MasteringMixologyPlugin extends Plugin {
         return textComponents;
     }
 
-    private void appendPotionRecipe(Widget component, int orderIdx, boolean highlight, boolean fulfilled) {
+    private void appendPotionRecipe(Widget component, int orderIdx, boolean fulfilled) {
         var potionType = getPotionType(orderIdx);
 
         if (potionType == null) {
             return;
         }
-        var builder = new StringBuilder();
-
-        if (highlight) {
-            builder.append("<col=00ff00>").append(component.getText()).append("</col>");
-        } else {
-            builder.append(component.getText());
-        }
+        var builder = new StringBuilder(component.getText());
 
         if (fulfilled) {
             builder.append(" (<col=00ff00>done!</col>)");
@@ -480,6 +526,25 @@ public class MasteringMixologyPlugin extends Plugin {
             builder.append(" (").append(potionType.recipe()).append(")");
         }
         component.setText(builder.toString());
+    }
+
+    private void addResinText(Widget widget, int x, int varp, PotionComponent component) {
+        var amount = client.getVarpValue(varp);
+        var color = ColorUtil.fromHex(component.color()).getRGB();
+
+        widget.setText(amount + "")
+                .setTextColor(color)
+                .setOriginalWidth(20)
+                .setOriginalHeight(15)
+                .setFontId(FontID.QUILL_8)
+                .setOriginalY(0)
+                .setOriginalX(x)
+                .setYPositionMode(WidgetPositionMode.ABSOLUTE_BOTTOM)
+                .setXTextAlignment(WidgetTextAlignment.CENTER)
+                .setYTextAlignment(WidgetTextAlignment.CENTER);
+
+        widget.revalidate();
+        LOGGER.debug("adding resin text {} at {} with color {}", amount, x, color);
     }
 
     private void tryFulfillOrder(PotionType potionType, PotionModifier modifier) {
